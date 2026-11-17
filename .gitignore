@@ -1,0 +1,9 @@
+# SONiC vs image — 2.4 GB, занадто великий для GitHub.
+# Зберігається локально (source для restore, див. runbooks/01-restore.md).
+sonic-vs.img.gz
+*.img
+
+# Secrets — ніколи не комітити
+.env.local
+.env
+*.local

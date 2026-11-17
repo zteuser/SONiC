@@ -1,0 +1,13 @@
+[Unit]
+Description=SONiC-vs IP CLOS fabric vnet addresses and FRR maximum-paths
+After=network-pre.target
+Wants=network-pre.target
+TimeoutStartSec=180
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/fabric-vnet.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

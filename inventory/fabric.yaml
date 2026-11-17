@@ -1,0 +1,152 @@
+# SONiC IP CLOS lab — PVE node 192.168.1.19 (PVE 9.2)
+# Status: 2026-11-17 — fabric ПОВНІСТЮ ВЕРИФІКОВАНО (PASSED):
+#   BGP 8/8 Established; inter-leaf (leaf1↔leaf2) + srv1↔srv2 — 0% loss;
+#   ECMP x2 на обох leaves (2 kernel nexthops). Відкритих блокерів НЕТ.
+#   Spine1↔spine2 Lo0 — недосяжно by design (немає spine–spine линку).
+#   AS re-plan: leaves 65002 → 65003/65004. Details: docs/verification-2026-11-17.md,
+#   docs/design-ip-clos.md «Поточний стан».
+#   LXC без mgmt NIC — керування через pct exec / console. Скрипт: scripts/create-lxc-servers.sh.
+#
+# !! PRAVILLO: оперувати за ОПЕРАТИВНОЮ РОЛЛЮ + mgmt IP, НЕ за PVE name/VMID.
+# PVE VM 903 (name "sonic-leaf1") = operationally LEAF2 (mgmt 145).
+# PVE VM 904 (name "sonic-leaf2") = operationally LEAF1 (mgmt 199).  -> names swapped.
+# srv bridge labels l1srv/l2srv — аналогічно swapped (див. quirk нижче).
+
+site:
+  pve_node: 192.168.1.19
+  mgmt_network: 192.168.1.0/24
+  mgmt_gateway: 192.168.1.1
+  storage: local-lvm
+  sonic_image: master.1273518-6f800f3d4   # 2026-11-11, Debian 13.7, FRR 10.7.1 sonic
+
+as_plan:
+  spine: 65001
+  leaf1: 65003    # re-plan 2026-11-16 (was 65002)
+  leaf2: 65004    # re-plan 2026-11-16 (was 65002)
+
+# identity = operational role; pve_id/pve_name kept for ops reference ONLY (see swap note).
+devices:
+  - role: spine1
+    pve_id: 901
+    pve_name: sonic-spine1
+    type: vm
+    bgp_as: 65001
+    loopback0: 10.1.0.1/32
+    mgmt_ip: 192.168.1.247
+    vcpu: 2
+    memory_mb: 2048
+    disk_gb: 8
+    nics:
+      - {idx: 0, bridge: vmbr0, purpose: mgmt}
+      - {idx: 1, bridge: br-c-s1l1a, ip: 10.0.3.0/31, to: leaf2, state: up}
+      - {idx: 2, bridge: br-c-s1l1b, state: inert}
+      - {idx: 3, bridge: br-c-s1l2a, ip: 10.0.1.0/31, to: leaf1, state: up}
+      - {idx: 4, bridge: br-c-s1l2b, state: inert}
+  - role: spine2
+    pve_id: 902
+    pve_name: sonic-spine2
+    type: vm
+    bgp_as: 65001
+    loopback0: 10.1.0.2/32
+    mgmt_ip: 192.168.1.82
+    vcpu: 2
+    memory_mb: 2048
+    disk_gb: 8
+    nics:
+      - {idx: 0, bridge: vmbr0, purpose: mgmt}
+      - {idx: 1, bridge: br-c-s2l1a, ip: 10.0.7.0/31, to: leaf2, state: up}
+      - {idx: 2, bridge: br-c-s2l1b, state: inert}
+      - {idx: 3, bridge: br-c-s2l2a, ip: 10.0.5.0/31, to: leaf1, state: up}
+      - {idx: 4, bridge: br-c-s2l2b, state: inert}
+  - role: leaf1
+    pve_id: 904
+    pve_name: sonic-leaf2   # SWAPPED: PVE name says leaf2, operational role = leaf1
+    type: vm
+    bgp_as: 65003
+    loopback0: 10.1.0.3/32
+    mgmt_ip: 192.168.1.199
+    vcpu: 2
+    memory_mb: 2048
+    disk_gb: 8
+    nics:
+      - {idx: 0, bridge: vmbr0, purpose: mgmt}
+      - {idx: 1, bridge: br-c-s1l2a, ip: 10.0.1.1/31, to: spine1, state: up}
+      - {idx: 2, bridge: br-c-s1l2b, state: inert}
+      - {idx: 3, bridge: br-c-s2l2a, ip: 10.0.5.1/31, to: spine2, state: up}
+      - {idx: 4, bridge: br-c-s2l2b, state: inert}
+      - {idx: 5, bridge: br-c-l2srv, ip: 10.0.9.0/31, to: srv1, state: up}
+  - role: leaf2
+    pve_id: 903
+    pve_name: sonic-leaf1   # SWAPPED: PVE name says leaf1, operational role = leaf2
+    type: vm
+    bgp_as: 65004
+    loopback0: 10.1.0.4/32
+    mgmt_ip: 192.168.1.145
+    vcpu: 2
+    memory_mb: 2048
+    disk_gb: 8
+    nics:
+      - {idx: 0, bridge: vmbr0, purpose: mgmt}
+      - {idx: 1, bridge: br-c-s1l1a, ip: 10.0.3.1/31, to: spine1, state: up}
+      - {idx: 2, bridge: br-c-s1l1b, state: inert}
+      - {idx: 3, bridge: br-c-s2l1a, ip: 10.0.7.1/31, to: spine2, state: up}
+      - {idx: 4, bridge: br-c-s2l1b, state: inert}
+      - {idx: 5, bridge: br-c-l1srv, ip: 10.0.10.0/31, to: srv2, state: up}
+  - role: srv1
+    pve_id: 905
+    pve_name: lab-srv1
+    type: lxc
+    bgp_as: null
+    loopback0: 10.1.0.99/32
+    mgmt: pct-exec   # без mgmt NIC
+    vcpu: 1
+    memory_mb: 256
+    status: running   # 2026-11-15 Task 5: створений; 2026-11-17: full verify matrix OK
+    net:
+      - {iface: eth0, bridge: br-c-l2srv, ip: 10.0.9.1/31, gw: 10.0.9.0, to: leaf1}
+  - role: srv2
+    pve_id: 906
+    pve_name: lab-srv2
+    type: lxc
+    bgp_as: null
+    loopback0: 10.1.0.100/32
+    mgmt: pct-exec   # без mgmt NIC
+    vcpu: 1
+    memory_mb: 256
+    status: running   # 2026-11-15 Task 5: створений; 2026-11-17: full verify matrix OK
+    net:
+      - {iface: eth0, bridge: br-c-l1srv, ip: 10.0.10.1/31, gw: 10.0.10.0, to: leaf2}
+
+# 4 active fabric /31 links (one per spine<->leaf pair) + 2 server /31 links.
+# The 4 "b" bridges (s1l1b/s1l2b/s2l1b/s2l2b) are inert 8-link leftovers — no IPs.
+# srv bridge quirk: br-c-l2srv physically on leaf1 (carries srv1);
+#                   br-c-l1srv physically on leaf2 (carries srv2).  (labels swapped)
+links:
+  - {id: s1l2a, bridge: br-c-s1l2a, a: {device: spine1, nic_idx: 3, ip: 10.0.1.0/31},  b: {device: leaf1, nic_idx: 1, ip: 10.0.1.1/31}}
+  - {id: s1l1a, bridge: br-c-s1l1a, a: {device: spine1, nic_idx: 1, ip: 10.0.3.0/31},  b: {device: leaf2, nic_idx: 1, ip: 10.0.3.1/31}}
+  - {id: s2l2a, bridge: br-c-s2l2a, a: {device: spine2, nic_idx: 3, ip: 10.0.5.0/31},  b: {device: leaf1, nic_idx: 3, ip: 10.0.5.1/31}}
+  - {id: s2l1a, bridge: br-c-s2l1a, a: {device: spine2, nic_idx: 1, ip: 10.0.7.0/31},  b: {device: leaf2, nic_idx: 3, ip: 10.0.7.1/31}}
+  - {id: l2srv, bridge: br-c-l2srv, a: {device: leaf1, nic_idx: 5, ip: 10.0.9.0/31},   b: {device: srv1, iface: eth0, ip: 10.0.9.1/31}}
+  - {id: l1srv, bridge: br-c-l1srv, a: {device: leaf2, nic_idx: 5, ip: 10.0.10.0/31},  b: {device: srv2, iface: eth0, ip: 10.0.10.1/31}}
+
+# ПРОВЕРЕНО 2026-11-13/14 (read-only):
+# Port map (SONiC-vs, verified via `show interfaces status`):
+#   qm NIC idx 0=eth0 (mgmt, not a SAI port); idx N -> Ethernet{4*(N-1)}:
+#   net1->Ethernet0, net2->Ethernet4, net3->Ethernet8, net4->Ethernet12,
+#   net5->Ethernet16. PORT table (32 entries) MUST stay byte-identical in configs.
+#
+# BGP state 2026-11-17 (final verification, PASSED):
+#   8/8 Established; PfxRcd leaf 7/spine, spine 5/leaf; RIB 12 (leaf) / 11 (spine).
+#   Inter-leaf + srv1↔srv2 — 0% loss; ECMP x2 verified (kernel FIB, 2 nexthops/leaf).
+#   Spine1↔spine2 Lo0 — FAIL by design. Docs: docs/verification-2026-11-17.md.
+host_resources:
+  cpu_cores: 12
+  load_avg: 0.06
+  ram_total_mb: 11880
+  ram_available_mb: 9721
+  swap_total_mb: 8191      # safety-net, майже порожній
+  lvmthin_local_lvm: 337.86g   # Data% 6.88
+  root_fs_free: 75g                 # / (upload 6.4g тимчасово)
+  existing:
+    - {id: 100, type: ct, status: running, mem_mb: 1024}
+    - {id: 101, type: vm, status: stopped, mem_mb: 8192}
